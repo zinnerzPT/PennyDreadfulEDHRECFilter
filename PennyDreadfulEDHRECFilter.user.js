@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PennyDreadful EDHREC Filter
 // @namespace    zinnerzPT
-// @version      0.14
+// @version      0.15
 // @description  Hides non-legal Penny Dreadful cards in EDHREC
 // @author       zinnerzPT
 // @match        https://edhrec.com/*
@@ -84,12 +84,9 @@
         navbar.appendChild(toggleContainer);
     }
 
-    // Use a CORS proxy to fetch the file over HTTPS
-    const proxyUrl = 'https://corsproxy.io/?url=';
-    const targetUrl = 'http://pdmtgo.com/legal_cards.txt';
+    const targetUrl = 'https://pennydreadfulmtg.github.io/legal_cards.txt';
 
-    // Use the Fetch API with HTTPS URL
-    fetch(proxyUrl + targetUrl)
+    fetch(targetUrl)
         .then(response => response.text())
         .then(data => {
             legalCardNames = data.split('\n').map(name => name.trim());
