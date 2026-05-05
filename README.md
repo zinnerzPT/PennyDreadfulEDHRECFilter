@@ -7,6 +7,10 @@ This is a simple userscript that adds a toggle on the top right corner of the wi
 3. Enjoy!
 
 # Change Log
+ * *Version 0.16*
+     * Full rewrite for better performance
+     * Added option to Highlight illegal cards instead of hiding
+
  * *Version 0.15*
      * Updated legal cards URL & removed CORS proxy
 

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         PennyDreadful EDHREC Filter
 // @namespace    zinnerzPT
-// @version      0.15
-// @description  Hides non-legal Penny Dreadful cards in EDHREC
+// @version      0.16
+// @description  Highlights or hides non-legal Penny Dreadful cards in EDHREC
 // @author       zinnerzPT
 // @match        https://edhrec.com/*
 // @grant        none
@@ -12,105 +12,226 @@
 // @updateURL    https://github.com/zinnerzPT/PennyDreadfulEDHRECFilter/raw/main/PennyDreadfulEDHRECFilter.user.js
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
-    let legalCardNames;
+    const STORAGE_KEY = 'pdFilterMode'; // off | hide | highlight
+    const DATA_URL = 'https://pennydreadfulmtg.github.io/legal_cards.txt';
 
-    // Hides cards in card view
-    function hideCardsInCardView(hideCards) {
-        const cardWrappers = document.querySelectorAll('[class*="Card_container"]');
-        cardWrappers.forEach(cardWrapper => {
-            let nameWrapper = cardWrapper.querySelector('[class*="Card_name"]');
-            if (!nameWrapper) {
-                nameWrapper = cardWrapper.querySelector('[class*="Card_nameUnderCard"]'); // if Names Under Cards option is ticked
+    let legalCardSet = new Set();
+    let mode = localStorage.getItem(STORAGE_KEY) || 'highlight';
+
+    function normalize(name) {
+        return name?.trim();
+    }
+
+    function getState(name) {
+        if (mode === 'off') return 'show';
+        return legalCardSet.has(normalize(name)) ? 'show' : mode;
+    }
+
+    function applyState(el, state) {
+        el.classList.remove('pd-hidden', 'pd-illegal');
+
+        if (state === 'hide') {
+            el.classList.add('pd-hidden');
+        } else if (state === 'highlight') {
+            el.classList.add('pd-illegal');
+        }
+    }
+
+    function scan() {
+        // Card view
+        document.querySelectorAll('[class*="Card_container"]').forEach(card => {
+            const nameEl =
+                card.querySelector('[class*="Card_name"]') ||
+                card.querySelector('[class*="Card_nameUnderCard"]');
+
+            if (!nameEl) return;
+
+            const name = normalize(nameEl.textContent);
+            const container = card.parentNode;
+
+            if (container) {
+                applyState(container, getState(name));
             }
-            if (nameWrapper) {
-                const cardName = nameWrapper.textContent.trim();
-                const isLegal = legalCardNames.includes(cardName);
-                const shouldHide = hideCards ? !isLegal : false;
-                cardWrapper.parentNode.classList.toggle('hidden-card', shouldHide);
+        });
+
+        // Table view
+        document.querySelectorAll('tr').forEach(row => {
+            const link = row.querySelector('a');
+            if (!link) return;
+
+            const name = normalize(link.textContent);
+            applyState(row, getState(name));
+        });
+
+        // Text view
+        document.querySelectorAll('[class*="TextView_textSection"] a').forEach(link => {
+            const name = normalize(link.textContent);
+            const container = link.closest('li, div');
+
+            if (container) {
+                applyState(container, getState(name));
             }
         });
     }
 
-    // Hides cards in table view
-    function hideCardsInTableView(hideCards) {
-        const tableRows = document.querySelectorAll('.TableView_tableBody__fnXV9.edhrec-clipboard-dont-close tr');
-        tableRows.forEach(row => {
-            const cardNameElement = row.querySelector('.TableView_tableBody__fnXV9.edhrec-clipboard-dont-close a');
-            if (cardNameElement) {
-                const cardName = cardNameElement.textContent.trim();
-                const isLegal = legalCardNames.includes(cardName);
-                const shouldHide = hideCards ? !isLegal : false;
-                row.classList.toggle('hidden-card', shouldHide);
-            }
-        });
-    }
-
-    // Hides cards in text view
-    function hideCardsInTextView(hideCards) {
-        const cardSections = document.querySelectorAll('[class*="TextView_textSection"]');
-        cardSections.forEach(cardSection => {
-            const cardLinks = cardSection.querySelectorAll('a');
-            cardLinks.forEach(cardLink => {
-                const cardName = cardLink.textContent.trim();
-                const isLegal = legalCardNames.includes(cardName);
-                const shouldHide = hideCards ? !isLegal : false;
-                cardLink.parentNode.parentNode.classList.toggle('hidden-card', shouldHide);
-            });
-        });
-    }
-
-    // Creates and appends the toggle button to the navbar
-    function createToggleButton(hideCards) {
+    function createToggle() {
         const navbar = document.querySelector('.Navbar_buttonContainer__A2QR6.navbar-nav');
-        const toggleContainer = document.createElement('div');
-        toggleContainer.className = 'Navbar_buttonContainer__A2QR6 toggle-container';
-        const toggleButton = document.createElement('div');
-        toggleButton.className = 'toggle-button';
-        toggleButton.innerHTML = '<span class="toggle-label">PD Filter </span><label class="switch"><input type="checkbox" id="toggleSwitch"><span class="slider"></span></label>';
-        const toggleSwitch = toggleButton.querySelector('#toggleSwitch');
-        toggleSwitch.checked = hideCards;
-        toggleButton.addEventListener('click', function() {
-            hideCards = !hideCards;
-            localStorage.setItem('hideCardsToggle', hideCards);
-            toggleSwitch.checked = hideCards;
-            hideCardsInCardView(hideCards);
-            hideCardsInTableView(hideCards);
-            hideCardsInTextView(hideCards);
-        });
-        toggleContainer.appendChild(toggleButton);
-        navbar.appendChild(toggleContainer);
-    }
+        if (!navbar) return;
 
-    const targetUrl = 'https://pennydreadfulmtg.github.io/legal_cards.txt';
+        if (document.querySelector('#pd-filter-toggle')) return;
 
-    fetch(targetUrl)
-        .then(response => response.text())
-        .then(data => {
-            legalCardNames = data.split('\n').map(name => name.trim());
-            let hideCards = localStorage.getItem('hideCardsToggle') === 'true';
-            hideCardsInCardView(hideCards);
-            hideCardsInTableView(hideCards);
-            hideCardsInTextView(hideCards);
-            createToggleButton(hideCards);
-            window.addEventListener('scroll', function() {
-                if (localStorage.getItem('hideCardsToggle') === 'true') {
-                    hideCardsInCardView(true);
-                    hideCardsInTableView(true);
-                    hideCardsInTextView(true);
+        const container = document.createElement('div');
+        container.id = 'pd-filter-toggle';
+        container.className = 'Navbar_buttonContainer__A2QR6';
+
+        container.innerHTML = `
+            <div class="pd-toggle-wrap">
+                <span class="pd-toggle-label">PD Filter</span>
+                <div class="pd-toggle-group">
+                    <button data-mode="off">Off</button>
+                    <button data-mode="highlight">Highlight</button>
+                    <button data-mode="hide">Hide</button>
+                </div>
+            </div>
+            `;
+
+        const buttons = container.querySelectorAll('button');
+
+        function updateUI() {
+            buttons.forEach(btn => {
+                if (btn.dataset.mode === mode) {
+                    btn.classList.add('pd-active');
+                } else {
+                    btn.classList.remove('pd-active');
                 }
             });
-        })
-        .catch(error => console.error('Failed to fetch legal card names:', error));
+        }
 
-    // Add the following CSS style for the hidden-card class
+        buttons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                mode = btn.dataset.mode;
+                localStorage.setItem(STORAGE_KEY, mode);
+                updateUI();
+                scan();
+            });
+        });
+
+        updateUI();
+        navbar.appendChild(container);
+    }
+
+    function observe() {
+        const observer = new MutationObserver(() => {
+            scan();
+            createToggle();
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    function hookNavigation() {
+        const pushState = history.pushState;
+
+        history.pushState = function () {
+            pushState.apply(this, arguments);
+            window.dispatchEvent(new Event('locationchange'));
+        };
+
+        window.addEventListener('popstate', () => {
+            window.dispatchEvent(new Event('locationchange'));
+        });
+
+        window.addEventListener('locationchange', () => {
+            setTimeout(() => {
+                scan();
+                createToggle();
+            }, 300);
+        });
+    }
+
+    function init(data) {
+        legalCardSet = new Set(
+            data.split('\n').map(normalize)
+        );
+
+        scan();
+        createToggle();
+        observe();
+        hookNavigation();
+    }
+
+    fetch(DATA_URL)
+        .then(r => r.text())
+        .then(init)
+        .catch(err => console.error('PD Filter error:', err));
+
+    // Styles
     const style = document.createElement('style');
     style.textContent = `
-        .hidden-card {
+        .pd-hidden {
             display: none !important;
+        }
+
+        .pd-illegal {
+            opacity: 0.35;
+            filter: grayscale(70%);
+            border: 2px solid #ff4d4d !important;
+            border-radius: 6px;
+        }
+
+        /* Outer wrapper: keeps everything glued together */
+        .pd-toggle-wrap {
+            display: flex;
+            align-items: stretch;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        /* Label */
+        .pd-toggle-label {
+            display: flex;
+            align-items: center;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.08);
+            border-right: 1px solid rgba(255, 255, 255, 0.15);
+            line-height: 1;
+        }
+
+        /* Container */
+        .pd-toggle-group {
+            display: flex;
+        }
+
+        /* Buttons */
+        .pd-toggle-group button {
+            background: transparent;
+            color: inherit;
+            border: none;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        /* Hover */
+        .pd-toggle-group button:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        /* Active state */
+        .pd-toggle-group button.pd-active {
+            background: rgba(255, 255, 255, 0.15);
+            font-weight: 600;
         }
     `;
     document.head.appendChild(style);
+
 })();
